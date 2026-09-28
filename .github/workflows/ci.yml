@@ -72,4 +72,3 @@ jobs:
           $version = (Get-Content extension/manifest.json | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and manifest versions differ' }
           gh release create $env:GITHUB_REF_NAME dist/* --verify-tag --title "Bili Cache $version" --generate-notes
-

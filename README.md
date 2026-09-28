@@ -36,4 +36,4 @@ Unsaved data is cleared when the tab closes. Saved copies expire after 7 days; c
 
 Keep the installation folder in place. Replace its files with the new release and click **Reload** on the extensions page. Close and reopen the cache panel to update an existing tab.
 
-[Privacy](https://qingrongy.github.io/bili-page-cache/privacy.html) · [Contributing](CONTRIBUTING.md)
+[Privacy](https://qingrongy.github.io/bili-page-cache/privacy.html) · [Contributing](https://github.com/QingrongY/bili-page-cache/blob/main/CONTRIBUTING.md)
