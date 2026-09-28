@@ -10,8 +10,10 @@ $releaseFiles = @('extension', 'docs', 'README.md', 'LICENSE') | ForEach-Object 
 Compress-Archive -LiteralPath $releaseFiles -DestinationPath $archivePath -Force
 $storePath = Join-Path $releaseDir ("BiliCache-" + $manifest.version + "-store.zip")
 Compress-Archive -Path (Join-Path $projectRoot 'extension/*') -DestinationPath $storePath -Force
+Compress-Archive -LiteralPath (Join-Path $projectRoot 'LICENSE') -DestinationPath $storePath -Update
 $materialsPath = Join-Path $releaseDir ("BiliCache-" + $manifest.version + "-store-assets.zip")
 Compress-Archive -Path (Join-Path $projectRoot 'store/*') -DestinationPath $materialsPath -Force
+Compress-Archive -LiteralPath (Join-Path $projectRoot 'LICENSE') -DestinationPath $materialsPath -Update
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead($storePath)
 try {
