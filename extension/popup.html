@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bili Cache</title>
+<style>
+  *{box-sizing:border-box}body{width:296px;margin:0;padding:20px;font:13px/1.5 system-ui,sans-serif;color:#202124;background:#fff}header{display:flex;align-items:center;justify-content:space-between}h1{font-size:16px;margin:0;font-weight:600}small{color:#6b7280;font-size:11px}p{color:#5f6368;margin:10px 0 14px;overflow-wrap:anywhere}button{width:100%;padding:9px 12px;border:1px solid #d9dce1;border-radius:6px;background:#fff;color:#30343b;cursor:pointer;font:inherit}button:hover:not(:disabled){background:#f3f4f6}button:focus-visible{outline:2px solid #1a73e8;outline-offset:2px}#show{background:#1a73e8;border-color:#1a73e8;color:#fff;font-weight:500}#show:hover:not(:disabled){background:#1765cc}button:disabled{opacity:.45;cursor:default}section{border-top:1px solid #e5e7eb;margin-top:20px;padding-top:16px}h2{font-size:12px;font-weight:600;margin:0}#status:empty{display:none}.note{font-size:11px;margin-bottom:0}
+</style>
+<header><h1>Bili Cache</h1><small>0.6.0</small></header>
+<p>Cache a Bilibili video at its current quality.</p>
+<button id="show">Enable on this tab</button>
+<p id="status" role="status"></p>
+<section aria-label="Saved videos">
+  <h2>Saved videos</h2>
+  <p id="storage-status" role="status">Checking storage...</p>
+  <button id="clear-all" disabled>Delete all saved videos</button>
+  <p class="note">Saved copies expire after 7 days. Cleanup runs every 30 minutes and when the browser starts.</p>
+</section>
+<script src="cache-db.js"></script><script src="storage-manager.js"></script><script src="popup.js"></script>
+</html>

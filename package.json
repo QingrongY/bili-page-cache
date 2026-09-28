@@ -1,0 +1,17 @@
+{
+  "name": "bili-page-cache",
+  "version": "0.6.0",
+  "description": "Document-scoped Bilibili media cache for Edge and Chrome",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/browser.test.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "playwright-core": "^1.63.0",
+    "puppeteer-core": "^25.12.0"
+  }
+}
