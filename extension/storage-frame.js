@@ -1,7 +1,7 @@
 (() => {
   const operations = new Map(); let port, currentId;
   const changes = new BroadcastChannel('bili-cache-changes');
-  changes.onmessage = event => { if (event.data?.clear || (currentId && event.data?.removed === currentId)) { for (const controller of operations.values()) controller.abort(); send({ purged: true }); } };
+  changes.onmessage = event => { if (event.data?.contextId === globalThis.__BILI_PAGE_CACHE_DB__.contextId) return; if (event.data?.clear || (currentId && event.data?.removed === currentId)) { for (const controller of operations.values()) controller.abort(); send({ purged: true }); } };
   const send = value => port?.postMessage(value);
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (sender.id !== chrome.runtime.id || message?.type !== 'cache-purge-all') return;

@@ -632,6 +632,12 @@ test('extension-owned storage survives the video tab; alarm cleans expiry and po
     });
     assert.equal(rawFrameWrite, false, 'The storage frame must ignore public requests and forged sessions');
     assert.equal((await manager.evaluate(() => __BILI_PAGE_CACHE_DB__.stats())).count, 1);
+    await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Delete saved', exact: true }).click();
+    await page.waitForFunction(() => window.lastCacheState?.pinnedUntil === 0 && !window.lastCacheState.saving);
+    assert.equal(await page.evaluate(() => window.lastCacheState.saveMessage), 'Saved copy deleted.');
+    assert.equal((await manager.evaluate(() => __BILI_PAGE_CACHE_DB__.stats())).count, 0);
+    await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Save for 7 days' }).click();
+    await page.waitForFunction(() => window.lastCacheState?.pinnedUntil > Date.now() && !window.lastCacheState.saving);
     assert.equal(await manager.evaluate(async () => (await chrome.alarms.get('bili-cache-expiry')).periodInMinutes), 30);
     await page.close();
     await manager.evaluate(async () => {

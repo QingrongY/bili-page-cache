@@ -18,10 +18,11 @@ function diskSize(dir) {
 test('large saved video survives browser restart and deletion releases its files', { timeout: 900000 }, async () => {
   assert.ok(Number.isInteger(sizeGB) && sizeGB >= 2 && sizeGB <= 12);
   const profile = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'bili-cache-large-'));
-  let context, id, sampling, memoryTimer;
+  let context, id, sampling, memoryTimer, videoPage;
   const report = { sizeGB, browser: options, peakBrowserWorkingSet: 0 };
   async function launch() {
     context = await chromium.launchPersistentContext(profile, { ...options, headless: true, args: ['--mute-audio', '--enable-unsafe-extension-debugging', ...(process.env.BLOB_DEBUG ? ['--enable-logging=stderr', '--vmodule=blob*=2'] : [])], ignoreDefaultArgs: ['--disable-extensions'] });
+    report.browserVersion = context.browser().version();
     const session = await context.browser().newBrowserCDPSession();
     ({ id } = await session.send('Extensions.loadUnpacked', { path: extension }));
     const page = await context.newPage(); await page.goto('chrome-extension://' + id + '/popup.html');
@@ -38,7 +39,7 @@ test('large saved video survives browser restart and deletion releases its files
       let requests = 0;
       const manager = page;
       await manager.evaluate(size => __BILI_PAGE_CACHE_DB__.setLimit(size), sizeGB * 1024 ** 3);
-      page = await context.newPage();
+      page = await context.newPage(); videoPage = page;
       await page.route('https://www.bilibili.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Large storage test</title><video muted></video>' }));
       await page.goto('https://www.bilibili.com/video/BVlarge');
       await page.evaluate(() => {
@@ -46,7 +47,7 @@ test('large saved video survives browser restart and deletion releases its files
         window.player = { getQuality: () => ({ realQ: 120 }), mediaElement: () => document.querySelector('video'), __core: () => ({
           getMpd: () => ({ video: [{ id: 120, base_url: url }], audio: [] }), getCurrentPlayURLFor: type => type === 'video' ? url : ''
         }) };
-        window.addEventListener('message', event => { if (event.data?.source === 'bili-page-cache:state') window.lastCacheState = event.data.state; });
+        window.addEventListener('message', event => { if (event.data?.source === 'bili-page-cache:state') window.lastCacheState = event.data.state; if (event.data?.source === 'bili-page-cache:pin-state') window.lastPinState = event.data.state; });
       });
       const session = await context.browser().newBrowserCDPSession();
       const { targetInfos } = await session.send('Target.getTargets', { filter: [{ type: 'tab' }] });
@@ -82,10 +83,14 @@ test('large saved video survives browser restart and deletion releases its files
       const state = await page.evaluate(() => window.lastCacheState);
       assert.equal(state.phase, 'ready', JSON.stringify(state));
       report.downloadMs = Date.now() - downloadStart; report.rangeRequests = requests;
+      const pinStart = Date.now();
       await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Save for 7 days' }).click();
-      await page.waitForFunction(() => window.lastCacheState?.pinnedUntil > Date.now() || (!!window.lastCacheState?.saveMessage && !window.lastCacheState.saving), null, { timeout: 180000 });
+      await page.waitForFunction(() => window.lastCacheState?.saving || window.lastCacheState?.pinnedUntil || window.lastPinState?.saveMessage, null, { timeout: 30000 });
+      assert.ok(await page.evaluate(() => window.lastCacheState.saving || window.lastCacheState.pinnedUntil), JSON.stringify(await page.evaluate(() => window.lastPinState)));
+      await page.waitForFunction(() => window.lastCacheState?.pinnedUntil > Date.now() || (!!window.lastCacheState?.saveMessage && !window.lastCacheState.saving), null, { timeout: 600000 });
       assert.ok((await page.evaluate(() => window.lastCacheState)).pinnedUntil, JSON.stringify(await page.evaluate(() => window.lastCacheState)));
-      await page.close(); page = manager;
+      report.pinMs = Date.now() - pinStart;
+      await page.close(); videoPage = null; page = manager;
     }
     report.saved = await page.evaluate(async ({ sizeGB, downloaded }) => {
       const db = __BILI_PAGE_CACHE_DB__, MiB = 1024 ** 2;
@@ -146,7 +151,10 @@ test('large saved video survives browser restart and deletion releases its files
     fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
     fs.writeFileSync(path.join(root, 'test-results', 'large-storage.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));
-  } catch (error) { console.log('Failure measurements:', JSON.stringify(report));
+  } catch (error) {
+    if (videoPage && !videoPage.isClosed()) report.lastState = await videoPage.evaluate(() => ({ cache: window.lastCacheState, pin: window.lastPinState, panel: document.querySelector('#bili-page-cache-panel')?.shadowRoot.querySelector('#saved-status')?.textContent })).catch(() => null);
+    report.failureDisk = { blobs: diskSize(path.join(profile, 'Default/blob_storage')), indexedDB: diskSize(path.join(profile, 'Default/IndexedDB')) };
+    console.log('Failure measurements:', JSON.stringify(report));
     throw error; } finally {
     clearInterval(memoryTimer); await sampling;
     await context?.close();
