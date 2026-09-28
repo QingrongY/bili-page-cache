@@ -105,10 +105,10 @@
         } else {
           await store.remove(savedKeys, signal);
           savedKeys = []; pinState.pinnedUntil = 0;
-          pinState.saveMessage = 'Saved copy deleted. This tab still has its cache.';
+          pinState.saveMessage = 'Saved copy deleted.';
         }
       } catch (error) {
-        pinState.saveMessage = error.name === 'QuotaExceededError' ? 'Not enough storage. The video was not saved.' : error.name === 'AbortError' ? 'Save canceled.' : `Could not save: ${error.message}`;
+        pinState.saveMessage = error.name === 'QuotaExceededError' ? 'Not enough storage to save this video.' : error.name === 'AbortError' ? 'Save canceled.' : `Could not save: ${error.message}`;
       } finally { pinState.saving = false; operation = null; if (!disposed) emit(); }
     }
     function dispose() {

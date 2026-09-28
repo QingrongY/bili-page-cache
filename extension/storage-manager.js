@@ -15,7 +15,7 @@
       await refresh();
       const stats = await db.stats();
       if (stats.count) throw new Error('Another tab is saving a video. Wait for it to finish, then retry.');
-      status.textContent = 'All saved videos deleted. 0 bytes remaining.';
+      status.textContent = '0 saved videos · 0 bytes';
     } catch (error) { status.textContent = `Could not delete saved videos. ${error.message}`; clear.disabled = false; }
   };
   refresh().catch(error => { status.textContent = `Could not check storage. ${error.message}`; });

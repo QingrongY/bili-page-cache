@@ -251,7 +251,7 @@
       targetKeys = new Set(tracks.map(t => core.key(t.url)));
       scope = identity();
       const progress = tracks.map(() => ({ loaded: 0, total: 0 }));
-      state = { ...state, phase: 'loading', label, preview, concurrency, autoSource, usePartial, progressive, message: preview ? 'Caching the preview. This is not the full video.' : progressive ? 'Caching. Downloaded parts are ready to play.' : 'Caching video and audio. Playback will use the cache when complete.' };
+      state = { ...state, phase: 'loading', label, preview, concurrency, autoSource, usePartial, progressive, message: preview ? 'Caching preview...' : 'Downloading video and audio...' };
       emit(true);
       const blobs = saved ? keys.map(key => saved.blobs[saved.keys.indexOf(key)]) : await Promise.all(tracks.map((track, index) => core.download(track, signal, (loaded, total) => {
         if (run !== generation) return;
@@ -348,7 +348,7 @@
       saveMessage = 'Saved for 7 days.';
     } catch (error) {
       if (run !== generation || stopped) return;
-      saveMessage = error.name === 'QuotaExceededError' ? 'Not enough storage. This tab still has its temporary cache.' : 'Could not save. This tab still has its temporary cache.';
+      saveMessage = error.name === 'QuotaExceededError' ? 'Not enough storage to save this video.' : 'Could not save. Try again.';
     } finally {
       if (run === generation && !stopped) { saving = false; saveController = null; emit(true); }
     }
@@ -362,7 +362,7 @@
       await store.remove(pinnedKeys, AbortSignal.any([lifetime.signal, saveController.signal]));
       if (run !== generation || stopped) return;
       pinnedKeys = []; pinnedUntil = 0;
-      saveMessage = 'Saved copy deleted. This tab still has its cache.';
+      saveMessage = 'Saved copy deleted.';
     } catch {
       if (run === generation && !stopped) saveMessage = 'Could not delete the saved copy. Try again.';
     } finally {
@@ -376,7 +376,7 @@
     state.phase = mismatch ? 'mismatch' : 'ready';
     state.message = mismatch
       ? `${state.label} is cached. Switch back to that quality and audio track, or cache the new selection.`
-      : state.preview ? 'Preview cached. The full video is not cached.' : 'Video cached. Keep this quality selected.';
+      : state.preview ? 'Preview cached.' : 'Video cached.';
   }
   function onCommand(event) {
     if (event.source !== window || event.origin !== location.origin || event.data?.source !== 'bili-page-cache:command') return;

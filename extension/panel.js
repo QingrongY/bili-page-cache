@@ -1,5 +1,5 @@
 (async () => {
-  if (window.__BILI_PAGE_CACHE_PANEL__?.version === '0.6.0') { window.__BILI_PAGE_CACHE_PANEL__.show(); return; }
+  if (window.__BILI_PAGE_CACHE_PANEL__?.version === '0.6.1') { window.__BILI_PAGE_CACHE_PANEL__.show(); return; }
   if (window.__BILI_PAGE_CACHE_PANEL__ || document.querySelector('#bili-page-cache-panel')) {
     await new Promise(resolve => {
       const done = event => {
@@ -29,7 +29,7 @@
         #fold,#close{background:none;border:0;color:#b8bbc2;padding:0 6px;font-size:18px}p{margin:8px 0 12px;overflow-wrap:anywhere}small{display:block;color:#aeb3bc;font-size:11px}
         progress{width:100%;height:5px;accent-color:#a8c7fa;display:block;margin:12px 0 8px}nav{display:flex;gap:8px;margin-top:12px}#start{background:#a8c7fa;color:#15243c;border-color:#a8c7fa;flex:1;font-weight:600}#start:hover:not(:disabled){background:#c3d7fb}#pin{flex:1}
         button:disabled{opacity:.45;cursor:default}[hidden]{display:none!important}#label{color:#aeb3bc}#stats{font-variant-numeric:tabular-nums}#saved-status{margin-top:8px;overflow-wrap:anywhere}#saved-status:empty{display:none}
-        details{margin-top:16px;border-top:1px solid #3b3e44;padding-top:10px}summary{cursor:pointer;color:#b8bbc2;font-size:12px}label{display:flex;align-items:center;gap:7px;margin-top:10px;color:#c3c7cf;font-size:12px}select{margin-left:auto;padding:3px 6px;background:#303237;color:#e6e8eb;border:1px solid #505258;border-radius:4px}input{margin:0;accent-color:#a8c7fa}#source-status,#partial-status{margin-top:4px}.note{margin-top:12px}
+        details{margin-top:16px;border-top:1px solid #3b3e44;padding-top:10px}summary{cursor:pointer;color:#b8bbc2;font-size:12px}label{display:flex;align-items:center;gap:7px;margin-top:10px;color:#c3c7cf;font-size:12px}select{margin-left:auto;padding:3px 6px;background:#303237;color:#e6e8eb;border:1px solid #505258;border-radius:4px}input{margin:0;accent-color:#a8c7fa}#source-status,#partial-status{margin-top:4px}
       </style>
       <section aria-label="Bili Cache"><header><strong>Bili Cache</strong><div><button id="fold" aria-label="Collapse panel" aria-expanded="true">−</button><button id="close" aria-label="Close cache" title="Close and clear temporary cache">×</button></div></header>
       <div id="body"><small id="label">Current quality</small><p id="message" role="status">Reading playback details...</p>
@@ -40,7 +40,7 @@
       <label>Connections<select id="concurrency" aria-label="Download connections"><option value="1">1</option><option value="4" selected>4 (default)</option><option value="8">8</option></select></label>
       <label><input id="auto-source" type="checkbox" checked> Choose the fastest server</label><small id="source-status"></small>
       <label><input id="use-partial" type="checkbox" checked> Play downloaded parts</label><small id="partial-status"></small>
-      </details><small class="note">Unsaved cache is cleared when this tab closes.</small></div></section>`;
+      </details></div></section>`;
     document.documentElement.append(host);
     root.querySelector('#start').onclick = () => command('start', { concurrency: Number(root.querySelector('#concurrency').value), autoSource: root.querySelector('#auto-source').checked, usePartial: root.querySelector('#use-partial').checked });
     root.querySelector('#clear').onclick = () => command('clear');
@@ -70,7 +70,7 @@
     if (s.phase === 'off') { destroy(); return; }
     const english = value => typeof value === 'string' && !/\p{Script=Han}/u.test(value);
     // Keep a completed cache running when upgrading from an older interface.
-    const fallback = s.phase === 'ready' ? (s.preview ? 'Preview cached. The full video is not cached.' : 'Video cached. Keep this quality selected.') : s.phase === 'loading' ? 'Downloading video and audio...' : s.phase === 'mismatch' ? 'Switch back to the cached quality and audio track, or cache the new selection.' : s.phase === 'error' ? 'Cache failed. Close the panel and enable it again to retry.' : 'Choose a fixed video quality, then click Cache video.';
+    const fallback = s.phase === 'ready' ? (s.preview ? 'Preview cached.' : 'Video cached.') : s.phase === 'loading' ? 'Downloading video and audio...' : s.phase === 'mismatch' ? 'Switch back to the cached quality and audio track, or cache the new selection.' : s.phase === 'error' ? 'Cache failed. Close the panel and enable it again to retry.' : 'Choose a fixed video quality, then click Cache video.';
     root.querySelector('#message').textContent = english(s.message) ? s.message : fallback;
     const label = english(s.label) && s.label ? s.label : 'Current quality';
     root.querySelector('#label').textContent = `${label}${s.preview ? ' · Preview' : ''}`;
@@ -82,7 +82,7 @@
     if (s.phase === 'loading' && typeof s.usePartial === 'boolean') root.querySelector('#use-partial').checked = s.usePartial;
     root.querySelector('#partial-status').textContent = s.phase !== 'loading' ? '' : s.progressive ? `${bytes(s.cachedBytes || 0)} ready. Uncached positions may buffer.` : 'Playback will use the cache when complete.';
     if (s.phase === 'loading' && typeof s.autoSource === 'boolean') root.querySelector('#auto-source').checked = s.autoSource;
-    root.querySelector('#source-status').textContent = !s.autoSource || !s.source ? '' : s.source.phase === 'testing' ? 'Checking server speeds...' : s.source.phase === 'selected' ? 'Using the fastest server from this check.' : s.source.phase === 'single' ? 'One server available.' : 'Speed check failed. Using the original server.';
+    root.querySelector('#source-status').textContent = !s.autoSource || !s.source ? '' : s.source.phase === 'testing' ? 'Checking server speeds...' : s.source.phase === 'selected' ? 'Server selected.' : s.source.phase === 'single' ? 'One server available.' : 'Speed check failed. Using the original server.';
     if (s.phase === 'loading' && s.concurrency) root.querySelector('#concurrency').value = String(s.concurrency);
     const progress = root.querySelector('#progress');
     if (s.phase === 'loading' && !s.total) progress.removeAttribute('value');
@@ -109,7 +109,7 @@
     try { chrome.runtime.onMessage.removeListener(onRuntime); } catch {}
     delete window.__BILI_PAGE_CACHE_PANEL__;
   }
-  window.__BILI_PAGE_CACHE_PANEL__ = { version: '0.6.0', show() {
+  window.__BILI_PAGE_CACHE_PANEL__ = { version: '0.6.1', show() {
     mount();
     if (root) { root.querySelector('#body').hidden = false; root.querySelector('#fold').textContent = '−'; root.querySelector('#fold').setAttribute('aria-expanded', 'true'); root.querySelector('#fold').setAttribute('aria-label', 'Collapse panel'); }
     command('status');

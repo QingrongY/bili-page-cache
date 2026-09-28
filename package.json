@@ -1,6 +1,6 @@
 {
   "name": "bili-page-cache",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Document-scoped Bilibili media cache for Edge and Chrome",
   "private": true,
   "scripts": {
