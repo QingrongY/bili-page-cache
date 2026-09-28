@@ -1,6 +1,7 @@
 /* Extension-owned media storage. All mutations share one IndexedDB transaction. */
 (() => {
   const name = 'bili-page-cache-pinned-v1', ttl = 7 * 86400000, defaultLimit = 32 * 1024 ** 3;
+  const contextId = crypto.randomUUID();
   const idFor = keys => [...keys].sort().join('\n');
   const request = req => new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
   const defaults = () => ({ id: 'settings', epoch: 0, limitBytes: defaultLimit });
@@ -47,13 +48,13 @@
     });
   }
   const settings = store => request(store.get('settings')).then(value => value || defaults());
-  const changed = (message = { changed: true }) => { try { const channel = new BroadcastChannel('bili-cache-changes'); channel.postMessage(message); channel.close(); } catch {} };
+  const changed = (message = { changed: true }) => { try { const channel = new BroadcastChannel('bili-cache-changes'); channel.postMessage({ ...message, contextId }); channel.close(); } catch {} };
   function validate(keys, blobs) {
     if (!Array.isArray(keys) || !keys.length || keys.length > 4 || new Set(keys).size !== keys.length || keys.some(key => typeof key !== 'string' || !key || key.length > 2048)) throw new Error('Invalid media keys');
     if (!Array.isArray(blobs) || keys.length !== blobs.length || blobs.some(blob => !(blob instanceof Blob) || !blob.size || blob.size > 12 * 1024 ** 3)) throw new Error('Wait for the download to finish before saving');
   }
   globalThis.__BILI_PAGE_CACHE_DB__ = Object.freeze({
-    ttl, defaultLimit,
+    ttl, defaultLimit, contextId,
     async revision(signal) { return (await transaction(false, signal, (v, c, s) => settings(s)) || defaults()).epoch; },
     async save({ keys, blobs, title, url, label, quality, epoch }, signal) {
       validate(keys, blobs);
