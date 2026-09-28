@@ -11,7 +11,7 @@
   let info = null, controller = null, generation = 0, direct = null, stopped = false;
   let scope = '', lastMetadata = null, lastEmit = 0, cachedQuality = null;
   let targetKeys = new Set(), matchedKeys = new Set(), trackChanged = false;
-  let speedSamples = [];
+  let speedSamples = [], job = null, pauseRequested = false;
   let state = { phase: 'idle', message: 'Choose a fixed video quality, play for a few seconds, then cache the video.', loaded: 0, total: 0, hits: 0, label: '', preview: false };
   const player = () => window.player;
   const video = () => (typeof player()?.mediaElement === 'function' ? player().mediaElement() : player()?.mediaElement) || document.querySelector('.bpx-player-video-wrap video, .bilibili-player-video video, video');
@@ -147,6 +147,7 @@
   }
   function clear(message = 'Temporary cache cleared.', restore = true) {
     generation++;
+    job = null; pauseRequested = false;
     controller?.abort(); controller = null;
     saveController?.abort(); saveController = null; saving = false; saveMessage = '';
     for (const entry of entries.values()) entry.clear?.();
@@ -219,7 +220,9 @@
   }
   async function start(options = {}) {
     if (controller || stopped) return;
-    clear();
+    const resume = options.resume && job;
+    if (!resume) clear();
+    pauseRequested = false;
     const run = generation;
     controller = new AbortController();
     const signal = controller.signal;
@@ -233,13 +236,15 @@
       await recoverMetadata(signal, run);
       signal.throwIfAborted();
       if (run !== generation || stopped) return;
-      const { element, tracks, label, preview, current, quality } = prepare();
+      const prepared = prepare();
+      if (resume && prepared.tracks.map(t => core.key(t.url)).join('\n') !== job.keys.join('\n')) throw new Error('The selected tracks changed. Clear the cache and start again.');
+      const { element, tracks, label, preview, current, quality } = prepared;
       // Native <video src=https://...> requests do not pass through fetch/XHR.
       // Leave that path intact until a complete local MP4 is available.
       const progressive = usePartial && !core.key(current);
       const keys = tracks.map(track => core.key(track.url));
       let saved = null;
-      try { saved = await store?.read(keys, signal); }
+      try { if (!resume) saved = await store?.read(keys, signal); }
       catch { signal.throwIfAborted(); saveMessage = 'Could not read the saved copy. Cache the video again.'; }
       signal.throwIfAborted();
       if (run !== generation || stopped) return;
@@ -250,16 +255,17 @@
       cachedQuality = quality;
       targetKeys = new Set(tracks.map(t => core.key(t.url)));
       scope = identity();
-      const progress = tracks.map(() => ({ loaded: 0, total: 0 }));
-      state = { ...state, phase: 'loading', label, preview, concurrency, autoSource, usePartial, progressive, message: preview ? 'Caching preview...' : 'Downloading video and audio...' };
+      if (!resume) job = { keys, sessions: tracks.map(() => ({})) };
+      const progress = job.sessions.map(session => ({ loaded: [...(session.parts?.values() || [])].reduce((n, b) => n + b.size, 0), total: session.total || 0 }));
+      state = { ...state, phase: 'loading', resumable: false, label, preview, concurrency, autoSource, usePartial, progressive, message: preview ? 'Caching preview...' : 'Downloading video and audio...' };
       emit(true);
-      const blobs = saved ? keys.map(key => saved.blobs[saved.keys.indexOf(key)]) : await Promise.all(tracks.map((track, index) => core.download(track, signal, (loaded, total) => {
+      const blobs = saved ? keys.map(key => saved.blobs[saved.keys.indexOf(key)]) : await Promise.allSettled(tracks.map((track, index) => core.download(track, signal, (loaded, total) => {
         if (run !== generation) return;
         progress[index] = { loaded, total };
         state.loaded = progress.reduce((s, x) => s + x.loaded, 0);
         state.total = progress.every(x => x.total) ? progress.reduce((s, x) => s + x.total, 0) : 0;
         emit();
-      }, { concurrency: index === 0 ? concurrency : 1, autoSource, onPart: ({ offset, total, blob }) => {
+      }, { session: job.sessions[index], concurrency: index === 0 ? concurrency : 1, autoSource, onPart: ({ offset, total, blob }) => {
         if (!progressive || run !== generation || signal.aborted) return;
         const key = core.key(track.url);
         let partial = entries.get(key);
@@ -273,7 +279,7 @@
       } }).then(blob => {
         if (progressive && run === generation && !signal.aborted) entries.set(core.key(track.url), blob);
         return blob;
-      })));
+      }).catch(error => { if (run === generation) controller?.abort(error); throw error; }))).then(results => { const failed = results.find(result => result.status === 'rejected'); if (failed) throw failed.reason; return results.map(result => result.value); });
       signal.throwIfAborted();
       if (run !== generation) return;
       tracks.forEach((t,i) => entries.set(core.key(t.url), blobs[i]));
@@ -315,16 +321,17 @@
         if (paused) element.pause();
         else element.play().catch(() => {});
       }
-      controller = null;
+      controller = null; job = null; state.resumable = false;
       updateReadyState();
       emit(true);
     } catch (error) {
       if (run !== generation) return;
       controller?.abort(); controller = null;
-      for (const entry of entries.values()) entry.clear?.();
-      entries.clear();
       restoreDirect();
-      state.phase = 'error';
+      state.resumable = !!job;
+      state.loaded = job ? job.sessions.reduce((n, session) => n + [...(session.parts?.values() || [])].reduce((m, b) => m + b.size, 0), 0) : 0;
+      state.phase = pauseRequested ? 'paused' : 'error';
+      if (pauseRequested) { state.message = 'Download paused.'; emit(true); return; }
       if (error.name === 'AbortError') state.message = 'Download canceled.';
       else if (error.name === 'TimeoutError' || /Failed to fetch|NetworkError/i.test(error.message)) {
         state.message = 'The video server did not respond. Check that the video plays normally, then retry. Reload the page if the link has expired.';
@@ -348,7 +355,7 @@
       saveMessage = 'Saved for 7 days.';
     } catch (error) {
       if (run !== generation || stopped) return;
-      saveMessage = error.name === 'QuotaExceededError' ? 'Not enough storage to save this video.' : 'Could not save. Try again.';
+      saveMessage = error.message || 'Could not save. Try again.';
     } finally {
       if (run === generation && !stopped) { saving = false; saveController = null; emit(true); }
     }
@@ -382,9 +389,10 @@
     if (event.source !== window || event.origin !== location.origin || event.data?.source !== 'bili-page-cache:command') return;
     switch (event.data.command) {
       case 'start': start(event.data); break;
+      case 'pause': if (controller) { pauseRequested = true; controller.abort(); } break;
       case 'pin': pin(); break;
       case 'unpin': unpin(); break;
-      case 'pinned-cleared': saveController?.abort(); pinnedKeys = []; pinnedUntil = 0; saveMessage = 'All saved copies deleted.'; emit(true); break;
+      case 'pinned-cleared': saveController?.abort(); pinnedKeys = []; pinnedUntil = 0; saveMessage = 'Saved copy deleted.'; emit(true); break;
       case 'clear': clear(); break;
       case 'status': emit(true); break;
       case 'disable': shutdown(); break;

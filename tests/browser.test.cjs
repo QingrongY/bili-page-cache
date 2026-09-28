@@ -4,6 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright-core');
 let browser;
+const browserOptions = process.env.BROWSER_PATH ? { executablePath: process.env.BROWSER_PATH } : { channel: process.env.BROWSER || 'msedge' };
+const unitBridge = () => { window.__BILI_CACHE_BRIDGE__ = { command(command, options = {}, event) {
+  if (command !== 'status' && !event?.isTrusted) return;
+  window.postMessage({ source: 'bili-page-cache:command', command, ...options }, location.origin);
+} }; };
+const unitStore = page => page.evaluate(() => { window.__BILI_PAGE_CACHE_STORE__ = { ...window.__BILI_PAGE_CACHE_DB__, close() {} }; });
 const mediaUrl = 'https://test.bilivideo.com/upgcxcode/1/2/123/123-1-80.mp4';
 // Requires Microsoft Edge and FFmpeg on PATH. Run with npm test.
 const fixturePath = path.join(__dirname, 'fixture.mp4');
@@ -15,11 +21,12 @@ const large = Buffer.alloc(18 * 1024 ** 2 + 39);
 for (let i=0; i<large.length; i++) large[i] = i % 251;
 const extension = path.join(__dirname, '..', 'extension');
 before(async () => {
-  browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--mute-audio'] });
+  browser = await chromium.launch({ ...browserOptions, headless: true, args: ['--mute-audio'] });
 });
 after(async () => { await browser?.close(); });
 async function setup(data = fixture, loadCore = true) {
   const page = await browser.newPage();
+  await page.addInitScript(unitBridge);
   const network = { count: 0, urls: new Set(), requests: [], offline: false, failures: 0, active: 0, maxActive: 0, completed: [], delay: () => 0, beforeResponse: async () => {}, ignoreRange: false };
   await page.route('https://www.bilibili.com/**', r => r.fulfill({ contentType:'text/html', body: '<!doctype html><body><video muted controls></video></body>' }));
   await page.route('https://*.bilivideo.com/**', async r => {
@@ -360,7 +367,7 @@ test('late activation reuses the observed playurl request and resolves nested me
 });
 test('installed extension: toolbar permission and popup enable only the chosen tab', async () => {
   const context=await chromium.launchPersistentContext('',{
-    channel:'msedge',headless:true,args:['--mute-audio','--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']
+    ...browserOptions,headless:true,args:['--mute-audio','--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']
   });
   try {
     const session=await context.browser().newBrowserCDPSession();
@@ -472,7 +479,7 @@ async function installDashController(page, url, persistent = false) {
     window.chrome = { runtime: { onMessage: { addListener() {}, removeListener() {} } } };
     window.addEventListener('message', e => { if (e.data?.source === 'bili-page-cache:state') window.lastCacheState = e.data.state; });
   }, url);
-  if (persistent) { await page.addScriptTag({ path: path.join(extension, 'cache-db.js') }); await page.addScriptTag({ path: path.join(extension, 'storage.js') }); }
+  if (persistent) { await page.addScriptTag({ path: path.join(extension, 'cache-db.js') }); await unitStore(page); }
   await page.addScriptTag({ path: path.join(extension, 'page.js') });
   await page.addScriptTag({ path: path.join(extension, 'panel.js') });
   await page.waitForFunction(() => window.lastCacheState?.phase === 'idle');
@@ -542,7 +549,8 @@ test('explicit seven-day pin survives reload, restores without media traffic and
     window.chrome = { runtime: { onMessage: { addListener() {}, removeListener() {} } } };
     window.addEventListener('message', e => { if (e.data?.source === 'bili-page-cache:state') window.lastCacheState = e.data.state; });
   }, mediaUrl);
-  for (const file of ['cache-db.js', 'storage.js', 'page.js', 'panel.js']) await page.addScriptTag({ path: path.join(extension, file) });
+  await page.addScriptTag({ path: path.join(extension, 'cache-db.js') }); await unitStore(page);
+  for (const file of ['page.js', 'panel.js']) await page.addScriptTag({ path: path.join(extension, file) });
   await page.waitForFunction(() => window.lastCacheState?.phase === 'ready');
   assert.equal(await page.evaluate(() => window.lastCacheState.pinnedUntil), expiry);
   const size = await page.evaluate(async url => (await (await fetch(url)).arrayBuffer()).byteLength, mediaUrl);
@@ -557,7 +565,7 @@ test('explicit seven-day pin survives reload, restores without media traffic and
 test('expired pinned records are unavailable and removed; failed save remains atomic', async () => {
   const { page } = await setup();
   await page.addScriptTag({ path: path.join(extension, 'cache-db.js') });
-  await page.addScriptTag({ path: path.join(extension, 'storage.js') });
+  await unitStore(page);
   const result = await page.evaluate(async () => {
     const store = window.__BILI_PAGE_CACHE_STORE__;
     const saved = await store.save({ keys: ['test-key'], blobs: [new Blob(['test-data'])] });
@@ -577,67 +585,63 @@ test('expired pinned records are unavailable and removed; failed save remains at
   await page.close();
 });
 
-test('legacy completed cache gains a pin button without losing its local data', async () => {
-  const { page, network } = await setup();
-  await page.evaluate(url => {
-    const core = window.__BILI_PAGE_CACHE_CORE__;
-    const blob = new Blob(['already cached']);
-    core.install({ entries: new Map([[core.key(url), blob]]), observe() {}, metadata() {}, hit() {} });
-    delete core.createPartialCache;
-    window.__BILI_PAGE_CACHE_RUNNING__ = true;
-    window.player = { __core: () => ({ getCurrentPlayURLFor: type => type === 'video' ? url : '' }) };
-    window.chrome = { runtime: { onMessage: { addListener() {}, removeListener() {} } } };
-    window.addEventListener('message', e => {
-      if (e.data?.source === 'bili-page-cache:command' && e.data.command === 'status') window.postMessage({ source: 'bili-page-cache:state', state: { phase: 'ready', files: 1, loaded: blob.size, total: blob.size, label: 'test' } }, location.origin);
-      if (e.data?.source === 'bili-page-cache:pin-state') window.pinState = e.data.state;
-    });
-  }, mediaUrl);
-  await page.addScriptTag({ path: path.join(extension, 'cache-db.js') });
-  await page.addScriptTag({ path: path.join(extension, 'storage.js') });
-  await page.addScriptTag({ path: path.join(extension, 'panel.js') });
-  await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Save for 7 days' }).click();
-  await page.waitForFunction(() => window.pinState?.pinnedUntil > Date.now() && !window.pinState.saving);
-  assert.equal(network.count, 0);
-  assert.equal(await page.evaluate(async url => (await fetch(url)).text(), mediaUrl), 'already cached');
-  assert.equal(await page.evaluate(async url => (await window.__BILI_PAGE_CACHE_STORE__.read([window.__BILI_PAGE_CACHE_CORE__.key(url)])).blobs[0].text(), mediaUrl), 'already cached');
-  await page.close();
-});
-
 test('extension-owned storage survives the video tab; alarm cleans expiry and popup clears every copy', async () => {
-  const context = await chromium.launchPersistentContext('', { channel: 'msedge', headless: true, args: ['--mute-audio', '--enable-unsafe-extension-debugging'], ignoreDefaultArgs: ['--disable-extensions'] });
+  const context = await chromium.launchPersistentContext('', { ...browserOptions, headless: true, args: ['--mute-audio', '--enable-unsafe-extension-debugging'], ignoreDefaultArgs: ['--disable-extensions'] });
   try {
     const session = await context.browser().newBrowserCDPSession();
     const { id } = await session.send('Extensions.loadUnpacked', { path: extension });
     const page = await context.newPage();
-    await page.route('https://www.bilibili.com/**', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><body>Storage fixture</body>' }));
+    await page.route('https://www.bilibili.com/**', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Storage fixture</title><body><video muted></video></body>' }));
     await page.goto('https://www.bilibili.com/video/BVstorage');
     const { targetInfos } = await session.send('Target.getTargets', { filter: [{ type: 'tab' }] });
     await session.send('Extensions.triggerAction', { id, targetId: targetInfos.find(t => t.url === page.url()).targetId });
     const popup = await context.newPage(); await popup.goto(`chrome-extension://${id}/popup.html`);
     await page.bringToFront(); await popup.evaluate(() => document.querySelector('#show').click());
     await page.waitForSelector('#bili-page-cache-panel');
-    const saved = await page.evaluate(async () => {
-      const store = window.__BILI_PAGE_CACHE_STORE__;
-      const data = new Uint8Array(2 * 1024 ** 2); data[0] = 23; data[data.length - 1] = 47;
-      const saved = await store.save({ keys: ['one'], blobs: [new Blob([data])] });
-      const record = await store.read(['one']); const bytes = new Uint8Array(await record.blobs[0].arrayBuffer());
-      await store.save({ keys: ['one'], blobs: record.blobs });
-      return { expiresAt: saved.expiresAt, length: bytes.length, first: bytes[0], last: bytes.at(-1), siteDatabases: (await indexedDB.databases()).map(db => db.name) };
+    await page.evaluate(url => {
+      const v = document.querySelector('video');
+      window.player = { getQuality: () => ({ realQ: 80 }), getManifest: () => ({ cid: 123 }), mediaElement: () => v,
+        __core: () => ({ getMpd: () => ({ video: [{ id: 80, base_url: url }], audio: [] }), getCurrentPlayURLFor: type => type === 'video' ? url : '' }) };
+      window.addEventListener('message', e => { if (e.data?.source === 'bili-page-cache:state') window.lastCacheState = e.data.state; });
+    }, mediaUrl);
+    await page.route('https://*.bilivideo.com/**', route => route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'video/mp4', 'Content-Length': String(fixture.length) }, body: fixture }));
+    const unauthorized = await page.evaluate(async () => {
+      try { await __BILI_PAGE_CACHE_STORE__.save({ keys: ['/one.mp4'], blobs: [new Blob(['bad'])] }); return false; } catch { return true; }
     });
-    assert.equal(saved.length, 2 * 1024 ** 2); assert.equal(saved.first, 23); assert.equal(saved.last, 47);
-    assert.ok(!saved.siteDatabases.includes('bili-page-cache-pinned-v1'), 'Pinned data must not be left in Bilibili site storage');
+    assert.equal(unauthorized, true);
+    await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Cache video' }).click();
+    await page.waitForFunction(() => window.lastCacheState?.phase === 'ready');
+    await page.evaluate(() => document.querySelector('#bili-page-cache-panel').shadowRoot.querySelector('#pin').click());
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => window.lastCacheState.pinnedUntil), 0, 'Synthetic clicks must not grant storage writes');
+    await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Save for 7 days' }).click();
+    await page.waitForFunction(() => window.lastCacheState?.pinnedUntil > Date.now() && !window.lastCacheState.saving);
+    assert.ok(!(await page.evaluate(async () => (await indexedDB.databases()).map(db => db.name))).includes('bili-page-cache-pinned-v1'));
     const manager = await context.newPage(); await manager.goto(`chrome-extension://${id}/popup.html`);
+    const rawFrameWrite = await page.evaluate(async () => {
+      const frame = document.querySelector('iframe[data-bili-cache-storage]');
+      const id = crypto.randomUUID(); let responded = false;
+      const listener = event => { if (event.data?.id === id) responded = true; };
+      window.addEventListener('message', listener);
+      frame.contentWindow.postMessage({ source: 'bili-cache-storage', id, method: 'save', value: { keys: ['/rogue.mp4'], blobs: [new Blob(['rogue'])] } }, new URL(frame.src).origin);
+      const fake = new MessageChannel();
+      frame.contentWindow.postMessage({ source: 'bili-cache-connect', token: 'forged' }, new URL(frame.src).origin, [fake.port2]);
+      fake.port1.onmessage = () => { responded = true; };
+      await new Promise(resolve => setTimeout(resolve, 100)); fake.port1.close();
+      window.removeEventListener('message', listener); return responded;
+    });
+    assert.equal(rawFrameWrite, false, 'The storage frame must ignore public requests and forged sessions');
     assert.equal((await manager.evaluate(() => __BILI_PAGE_CACHE_DB__.stats())).count, 1);
     assert.equal(await manager.evaluate(async () => (await chrome.alarms.get('bili-cache-expiry')).periodInMinutes), 30);
     await page.close();
     await manager.evaluate(async () => {
       await new Promise((resolve, reject) => {
-        const open = indexedDB.open('bili-page-cache-pinned-v1', 2);
+        const open = indexedDB.open('bili-page-cache-pinned-v1');
         open.onsuccess = () => {
           const db = open.result, tx = db.transaction(['videos', 'catalog'], 'readwrite');
           for (const name of ['videos', 'catalog']) {
-            const store = tx.objectStore(name), req = store.get('one');
-            req.onsuccess = () => { req.result.expiresAt = Date.now() - 1000; store.put(req.result); };
+            const store = tx.objectStore(name), req = store.openCursor();
+            req.onsuccess = () => { const record = req.result.value; record.expiresAt = Date.now() - 1000; store.put(record); };
           }
           tx.oncomplete = () => { db.close(); resolve(); }; tx.onabort = () => { db.close(); reject(tx.error); };
         };
@@ -650,11 +654,142 @@ test('extension-owned storage survives the video tab; alarm cleans expiry and po
     await manager.waitForFunction(async () => (await __BILI_PAGE_CACHE_DB__.stats()).count === 0, { timeout: 15000 });
     assert.equal(await manager.evaluate(() => __BILI_PAGE_CACHE_DB__.read(['one'])), null);
     await manager.evaluate(async () => {
-      for (const key of ['two', 'three']) await __BILI_PAGE_CACHE_DB__.save({ keys: [key], blobs: [new Blob(['saved video'])] });
+      for (const key of ['two', 'three']) await __BILI_PAGE_CACHE_DB__.save({ keys: [key], blobs: [new Blob(['saved video'])], title: '<b>' + key + '</b>', url: 'https://www.bilibili.com/video/BV' + key + '?token=private' });
     });
     await manager.reload(); await manager.waitForFunction(() => !document.querySelector('#clear-all').disabled);
+    assert.equal(await manager.locator('#saved-list li').count(), 2);
+    assert.equal(await manager.locator('#saved-list b').count(), 0, 'Titles are text, not markup');
+    assert.ok(!(await manager.locator('#saved-list a').first().getAttribute('href')).includes('token'));
+    await manager.locator('#saved-list .delete').first().click();
+    await manager.waitForFunction(() => document.querySelectorAll('#saved-list li').length === 1);
+    assert.equal((await manager.evaluate(() => __BILI_PAGE_CACHE_DB__.stats())).count, 1);
     await manager.locator('#clear-all').click();
-    await manager.waitForFunction(() => document.querySelector('#storage-status').textContent.includes('0 bytes'));
+    await manager.waitForFunction(() => document.querySelector('#storage-status').textContent === 'No saved videos.');
     assert.equal((await manager.evaluate(() => __BILI_PAGE_CACHE_DB__.stats())).count, 0);
   } finally { await context.close(); }
+});
+
+test('pause and resume reuse committed ranges and reconstruct the full file', async () => {
+  const { page, network } = await setup(large);
+  await installDashController(page, mediaUrl);
+  network.delay = start => start ? 180 : 0;
+  await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Cache video' }).click();
+  await page.waitForFunction(() => window.lastCacheState?.cachedBytes >= 256 * 1024);
+  await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Pause', exact: true }).click();
+  await page.waitForFunction(() => window.lastCacheState?.phase === 'paused');
+  const paused = await page.evaluate(() => window.lastCacheState);
+  assert.ok(paused.loaded > 0 && paused.loaded < large.length);
+  assert.equal(paused.resumable, true);
+  const firstCount = network.requests.filter(r => r.start === 0).length;
+  await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Resume' }).click();
+  await page.waitForFunction(() => window.lastCacheState?.phase === 'ready');
+  assert.equal(network.requests.filter(r => r.start === 0).length, firstCount);
+  const hash = await page.evaluate(async url => {
+    const data = await (await fetch(url)).arrayBuffer();
+    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map(n => n.toString(16).padStart(2, '0')).join('');
+  }, mediaUrl);
+  assert.equal(hash, require('node:crypto').createHash('sha256').update(large).digest('hex'));
+  await page.close();
+});
+
+test('aborted transfer retains committed parts for resume', async () => {
+  const { page, network } = await setup(large);
+  await page.evaluate(url => {
+    const ac = new AbortController(), session = {};
+    window.resumeSession = session;
+    window.failedDownload = __BILI_PAGE_CACHE_CORE__.download({ url }, ac.signal, () => {}, {
+      concurrency: 1, autoSource: false, session,
+      onPart({ offset }) { if (offset === 0) ac.abort(); }
+    }).catch(error => error.name);
+  }, mediaUrl);
+  assert.equal(await page.evaluate(() => window.failedDownload), 'AbortError');
+  assert.equal(await page.evaluate(() => window.resumeSession.parts.size), 1);
+  const before = network.count;
+  await page.evaluate(async url => {
+    const blob = await __BILI_PAGE_CACHE_CORE__.download({ url }, new AbortController().signal, () => {}, { session: window.resumeSession, autoSource: false });
+    window.resumedSize = blob.size;
+  }, mediaUrl);
+  assert.equal(await page.evaluate(() => window.resumedSize), large.length);
+  assert.ok(network.count > before);
+  assert.equal(network.requests.filter(r => r.start === 0).length, 1);
+  await page.close();
+});
+
+test('deleting in another tab invalidates outstanding save grants and renew replaces one record', async () => {
+  const context = await browser.newContext();
+  const pages = await Promise.all([context.newPage(), context.newPage()]);
+  for (const page of pages) {
+    await page.route('https://www.bilibili.com/**', r => r.fulfill({ contentType: 'text/html', body: '<title>Storage</title>' }));
+    await page.goto('https://www.bilibili.com/video/BVstorage');
+    await page.addScriptTag({ path: path.join(extension, 'cache-db.js') });
+  }
+  const epoch = await pages[0].evaluate(() => __BILI_PAGE_CACHE_DB__.revision());
+  await pages[1].evaluate(() => __BILI_PAGE_CACHE_DB__.clearAll());
+  const result = await pages[0].evaluate(async epoch => {
+    const db = __BILI_PAGE_CACHE_DB__;
+    let failure;
+    try { await db.save({ keys: ['old'], blobs: [new Blob(['old'])], epoch }); } catch (error) { failure = error.name; }
+    await db.save({ keys: ['new'], blobs: [new Blob(['new'])], title: '<script>literal title</script>', url: 'https://www.bilibili.com/video/BVstorage?token=secret&p=2' });
+    await db.save({ keys: ['new'], blobs: [new Blob(['renewed'])] });
+    return { failure, stats: await db.stats(), text: await (await db.read(['new'])).blobs[0].text() };
+  }, epoch);
+  assert.equal(result.failure, 'AbortError');
+  assert.equal(result.stats.count, 1);
+  assert.equal(result.stats.bytes, 7);
+  assert.equal(result.text, 'renewed');
+  await context.close();
+});
+
+test('version 2 storage migrates without losing saved blobs', async () => {
+  const { page } = await setup();
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const req = indexedDB.open('bili-page-cache-pinned-v1', 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      db.createObjectStore('videos', { keyPath: 'id' }).createIndex('expiresAt', 'expiresAt');
+      db.createObjectStore('catalog', { keyPath: 'id' });
+    };
+    req.onsuccess = () => {
+      const db = req.result, tx = db.transaction(['videos', 'catalog'], 'readwrite');
+      const record = { id: 'legacy', keys: ['legacy'], blobs: [new Blob(['kept'])], bytes: 4, expiresAt: Date.now() + 86400000 };
+      tx.objectStore('videos').put(record);
+      tx.objectStore('catalog').put({ id: record.id, bytes: record.bytes, expiresAt: record.expiresAt });
+      tx.oncomplete = () => { db.close(); resolve(); }; tx.onabort = () => reject(tx.error);
+    };
+  }));
+  await page.addScriptTag({ path: path.join(extension, 'cache-db.js') });
+  const result = await page.evaluate(async () => ({ text: await (await __BILI_PAGE_CACHE_DB__.read(['legacy'])).blobs[0].text(), stats: await __BILI_PAGE_CACHE_DB__.stats() }));
+  assert.equal(result.text, 'kept'); assert.equal(result.stats.count, 1); assert.equal(result.stats.limitBytes, 32 * 1024 ** 3);
+  await page.close();
+});
+
+test('failed download resumes after the server recovers', async () => {
+  const { page, network } = await setup(large);
+  await installDashController(page, mediaUrl);
+  network.beforeResponse = async start => { if (start === 0) network.offline = true; };
+  await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Cache video' }).click();
+  await page.waitForFunction(() => window.lastCacheState?.phase === 'error');
+  assert.equal(await page.evaluate(() => window.lastCacheState.loaded), 256 * 1024);
+  network.offline = false; network.beforeResponse = async () => {};
+  await page.locator('#bili-page-cache-panel').getByRole('button', { name: 'Resume' }).click();
+  await page.waitForFunction(() => window.lastCacheState?.phase === 'ready');
+  assert.equal(network.requests.filter(r => r.start === 0).length, 1);
+  await page.close();
+});
+
+test('concurrent saves cannot exceed the storage limit', async () => {
+  const context = await chromium.launchPersistentContext('', { ...browserOptions, headless: true });
+  const page = await context.newPage();
+  await page.route('https://www.bilibili.com/**', r => r.fulfill({ contentType: 'text/html', body: '<title>Capacity</title>' }));
+  await page.goto('https://www.bilibili.com/video/BVcapacity');
+  await page.addScriptTag({ path: path.join(extension, 'cache-db.js') });
+  const result = await page.evaluate(async () => {
+    const db = __BILI_PAGE_CACHE_DB__; await db.setLimit(1024 ** 3);
+    const part = new Blob([new Uint8Array(1024 ** 2)]), blob = new Blob(Array(600).fill(part));
+    const outcomes = await Promise.allSettled(['a', 'b'].map(key => db.save({ keys: [key], blobs: [blob] })));
+    return { outcomes: outcomes.map(result => result.status === 'fulfilled' ? 'saved' : result.reason.name), stats: await db.stats() };
+  });
+  assert.deepEqual(result.outcomes.sort(), ['QuotaExceededError', 'saved']);
+  assert.equal(result.stats.bytes, 600 * 1024 ** 2); assert.equal(result.stats.count, 1);
+  await page.evaluate(() => __BILI_PAGE_CACHE_DB__.clearAll()); await context.close();
 });

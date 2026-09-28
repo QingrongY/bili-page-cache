@@ -1,5 +1,5 @@
 (async () => {
-  if (window.__BILI_PAGE_CACHE_PANEL__?.version === '0.6.2') { window.__BILI_PAGE_CACHE_PANEL__.show(); return; }
+  if (window.__BILI_PAGE_CACHE_PANEL__?.version === '0.7.0') { window.__BILI_PAGE_CACHE_PANEL__.show(); return; }
   if (window.__BILI_PAGE_CACHE_PANEL__ || document.querySelector('#bili-page-cache-panel')) {
     await new Promise(resolve => {
       const done = event => {
@@ -14,7 +14,8 @@
   document.querySelectorAll('#bili-page-cache-panel').forEach(panel => panel.remove());
   let host, root;
   let latestState = {}, pinOverride = {};
-  const command = (command, options = {}) => window.postMessage({ source: 'bili-page-cache:command', command, ...options }, location.origin);
+  const bridge = globalThis.__BILI_CACHE_BRIDGE__;
+  const command = (command, options = {}, event) => bridge?.command(command, options, event);
   function mount() {
     if (host || !/^\/(video|bangumi\/play)\//.test(location.pathname)) return;
     host = document.createElement('div');
@@ -42,11 +43,11 @@
       <label><input id="use-partial" type="checkbox" checked> Play downloaded parts</label><small id="partial-status"></small>
       </details></div></section>`;
     document.documentElement.append(host);
-    root.querySelector('#start').onclick = () => command('start', { concurrency: Number(root.querySelector('#concurrency').value), autoSource: root.querySelector('#auto-source').checked, usePartial: root.querySelector('#use-partial').checked });
-    root.querySelector('#clear').onclick = () => command('clear');
-    root.querySelector('#pin').onclick = () => command('pin');
-    root.querySelector('#unpin').onclick = () => command('unpin');
-    root.querySelector('#close').onclick = () => command('disable');
+    root.querySelector('#start').onclick = event => command(latestState.phase === 'loading' ? 'pause' : 'start', { resume: !!latestState.resumable, concurrency: Number(root.querySelector('#concurrency').value), autoSource: root.querySelector('#auto-source').checked, usePartial: root.querySelector('#use-partial').checked }, event);
+    root.querySelector('#clear').onclick = event => command('clear', {}, event);
+    root.querySelector('#pin').onclick = event => command('pin', {}, event);
+    root.querySelector('#unpin').onclick = event => command('unpin', {}, event);
+    root.querySelector('#close').onclick = event => command('disable', {}, event);
     root.querySelector('#fold').onclick = () => {
       const body = root.querySelector('#body'); body.hidden = !body.hidden;
       root.querySelector('#fold').textContent = body.hidden ? '+' : '−';
@@ -78,7 +79,7 @@
     root.querySelector('#stats').textContent = `${bytes(s.loaded || 0)}${s.total ? ' / ' + bytes(s.total) : ''}${rate}`;
     root.querySelector('#concurrency').disabled = s.phase === 'loading';
     root.querySelector('#auto-source').disabled = s.phase === 'loading';
-    root.querySelector('#use-partial').disabled = s.phase === 'loading';
+    root.querySelector('#use-partial').disabled = s.phase === 'loading' || !!s.resumable;
     if (s.phase === 'loading' && typeof s.usePartial === 'boolean') root.querySelector('#use-partial').checked = s.usePartial;
     root.querySelector('#partial-status').textContent = s.phase !== 'loading' ? '' : s.progressive ? `${bytes(s.cachedBytes || 0)} ready. Uncached positions may buffer.` : 'Playback will use the cache when complete.';
     if (s.phase === 'loading' && typeof s.autoSource === 'boolean') root.querySelector('#auto-source').checked = s.autoSource;
@@ -87,8 +88,8 @@
     const progress = root.querySelector('#progress');
     if (s.phase === 'loading' && !s.total) progress.removeAttribute('value');
     else progress.value = s.total ? Math.min(100, 100 * s.loaded / s.total) : 0;
-    root.querySelector('#start').disabled = s.phase === 'loading' || s.phase === 'ready';
-    root.querySelector('#start').textContent = s.phase === 'loading' ? 'Downloading...' : s.phase === 'ready' ? 'Cached' : 'Cache video';
+    root.querySelector('#start').disabled = s.phase === 'ready';
+    root.querySelector('#start').textContent = s.phase === 'loading' ? 'Pause' : s.resumable ? 'Resume' : s.phase === 'ready' ? 'Cached' : 'Cache video';
     root.querySelector('#clear').textContent = s.phase === 'loading' ? 'Cancel' : 'Clear cache';
     root.querySelector('#pin').disabled = !!s.saving || !['ready', 'mismatch'].includes(s.phase);
     root.querySelector('#pin').textContent = s.saving ? 'Please wait...' : s.pinnedUntil ? 'Renew for 7 days' : 'Save for 7 days';
@@ -109,7 +110,7 @@
     try { chrome.runtime.onMessage.removeListener(onRuntime); } catch {}
     delete window.__BILI_PAGE_CACHE_PANEL__;
   }
-  window.__BILI_PAGE_CACHE_PANEL__ = { version: '0.6.2', show() {
+  window.__BILI_PAGE_CACHE_PANEL__ = { version: '0.7.0', show() {
     mount();
     if (root) { root.querySelector('#body').hidden = false; root.querySelector('#fold').textContent = '−'; root.querySelector('#fold').setAttribute('aria-expanded', 'true'); root.querySelector('#fold').setAttribute('aria-label', 'Collapse panel'); }
     command('status');

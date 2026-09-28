@@ -30,7 +30,7 @@ document.querySelector('#show').onclick = async () => {
     // Pin both injections to the document that was checked, even if the tab
     // navigates while activation is in progress.
     injectedTarget = { tabId: tab.id, documentIds: [page.documentId] };
-    await chrome.scripting.executeScript({ target: injectedTarget, world: 'MAIN', func: url => { window.__BILI_PAGE_CACHE_STORAGE_URL__ = url; }, args: [chrome.runtime.getURL('storage-frame.html')] });
+    await chrome.scripting.executeScript({ target: injectedTarget, files: ['storage-bridge.js'] });
     await chrome.scripting.executeScript({ target: injectedTarget, world: 'MAIN', files: ['cache-core.js', 'storage.js', 'page.js'] });
     await chrome.scripting.executeScript({ target: injectedTarget, files: ['panel.js'] });
     const [panel] = await chrome.scripting.executeScript({ target: injectedTarget, func: () => !!document.getElementById('bili-page-cache-panel') });

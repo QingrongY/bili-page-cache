@@ -1,0 +1,17 @@
+Name: Bili Cache
+Summary: Cache Bilibili video and audio at the selected quality, or save a copy for 7 days.
+Category: Productivity
+Language: English
+Website: https://github.com/QingrongY/bili-page-cache
+Support: https://github.com/QingrongY/bili-page-cache/issues
+Privacy: https://qingrongy.github.io/bili-page-cache/privacy.html
+
+Description
+
+Cache a Bilibili video before watching, or play downloaded parts as they arrive.
+
+Open a video, choose a fixed quality, then enable Bili Cache from the toolbar. Click Cache video to download the selected video and audio. Pause and resume the download without losing completed parts. Available video servers are checked automatically to choose a faster connection.
+
+Temporary data is released when you close the tab. To keep a completed video, click Save for 7 days. The toolbar popup lists saved videos with their size, quality and expiry date. Open a saved video from its title, delete a copy, or change the saved-storage limit.
+
+Seeking to a part that has not downloaded yet uses the network. Direct MP4 playback switches to the cache when the download finishes.
