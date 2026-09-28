@@ -187,39 +187,25 @@
           if (total && nextTotal !== total) throw new Error('The media file size changed. Start the cache again.');
           if (nextTotal > maxSize) throw new Error('This track exceeds the 12 GB cache limit');
           total = nextTotal;
-          const reader = response.body.getReader();
-          const chunks = [], bodyParts = [];
-          let loaded = 0, bufferedBytes = 0;
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
+          let loaded = 0;
+          // Response.blob() uses the browser's streaming Blob writer. Unlike
+          // constructing many byte-backed Blobs, it waits for storage limits
+          // to initialize and can spill large responses directly to disk.
+          const monitored = response.body.pipeThrough(new TransformStream({
+            transform(value, stream) {
               activity();
               loaded += value.byteLength;
               if (loaded > maxSize || (expected && loaded > expected)) throw new Error('The media response is larger than expected');
-              chunks.push(value); bufferedBytes += value.byteLength;
-              if (bufferedBytes >= chunkSize) {
-                const piece = new Blob(chunks, { type: mime });
-                chunks.length = 0; bufferedBytes = 0;
-                await piece.slice(-1).arrayBuffer();
-                activeSignal.throwIfAborted();
-                bodyParts.push(piece);
-              }
               pending.set(offset, loaded);
               report();
+              stream.enqueue(value);
             }
-          } catch (error) {
-            await reader.cancel().catch(() => {});
-            throw error;
-          } finally { reader.releaseLock(); }
+          }));
+          const data = await new Response(monitored, { headers: { 'Content-Type': mime } }).blob();
           if (expected && loaded !== expected) throw new Error('Incomplete media response. Retrying.');
           if (!loaded) throw new Error('The server returned an empty media response');
           if (!total && response.status === 200) total = loaded;
           activeSignal.throwIfAborted();
-          const data = new Blob([...bodyParts, ...chunks], { type: mime });
-          // Wait for Blob transport before scheduling another range. Chromium
-          // otherwise queues renderer buffers faster than it can spill to disk.
-          chunks.length = 0;
           await data.slice(-1).arrayBuffer();
           activeSignal.throwIfAborted();
           parts.set(offset, data);

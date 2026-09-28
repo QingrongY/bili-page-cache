@@ -1,6 +1,6 @@
 {
   "name": "bili-page-cache",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Bilibili video cache for Edge and Chrome",
   "private": true,
   "scripts": {

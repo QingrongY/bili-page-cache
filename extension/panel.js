@@ -1,5 +1,5 @@
 (async () => {
-  if (window.__BILI_PAGE_CACHE_PANEL__?.version === '0.7.0') { window.__BILI_PAGE_CACHE_PANEL__.show(); return; }
+  if (window.__BILI_PAGE_CACHE_PANEL__?.version === '0.7.1') { window.__BILI_PAGE_CACHE_PANEL__.show(); return; }
   if (window.__BILI_PAGE_CACHE_PANEL__ || document.querySelector('#bili-page-cache-panel')) {
     await new Promise(resolve => {
       const done = event => {
@@ -110,7 +110,7 @@
     try { chrome.runtime.onMessage.removeListener(onRuntime); } catch {}
     delete window.__BILI_PAGE_CACHE_PANEL__;
   }
-  window.__BILI_PAGE_CACHE_PANEL__ = { version: '0.7.0', show() {
+  window.__BILI_PAGE_CACHE_PANEL__ = { version: '0.7.1', show() {
     mount();
     if (root) { root.querySelector('#body').hidden = false; root.querySelector('#fold').textContent = '−'; root.querySelector('#fold').setAttribute('aria-expanded', 'true'); root.querySelector('#fold').setAttribute('aria-label', 'Collapse panel'); }
     command('status');

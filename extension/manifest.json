@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bili Cache",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Cache Bilibili video and audio at the selected quality. Clear it when the tab closes or save a copy for 7 days.",
   "minimum_chrome_version": "120",
   "action": {
