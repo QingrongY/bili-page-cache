@@ -1,11 +1,8 @@
 node_modules/
-.test-profile/
 *.zip
 tests/fixture.mp4
 test-results/
 dist/
-browser-console.cjs
-TEST-RESULTS.md
 .env
 .env.*
 *.log

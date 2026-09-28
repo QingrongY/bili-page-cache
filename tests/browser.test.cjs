@@ -5,7 +5,12 @@ const path = require('node:path');
 const { chromium } = require('playwright-core');
 let browser;
 const mediaUrl = 'https://test.bilivideo.com/upgcxcode/1/2/123/123-1-80.mp4';
-const fixture = fs.readFileSync(path.join(__dirname, 'fixture.mp4'));
+// Requires Microsoft Edge and FFmpeg on PATH. Run with npm test.
+const fixturePath = path.join(__dirname, 'fixture.mp4');
+if (!fs.existsSync(fixturePath)) {
+  require('node:child_process').execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '12', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '24', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', '-y', fixturePath]);
+}
+const fixture = fs.readFileSync(fixturePath);
 const large = Buffer.alloc(18 * 1024 ** 2 + 39);
 for (let i=0; i<large.length; i++) large[i] = i % 251;
 const extension = path.join(__dirname, '..', 'extension');
