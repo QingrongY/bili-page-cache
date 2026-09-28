@@ -129,12 +129,14 @@
     const chunkSize = 4 * 1024 * 1024;
     const maxSize = 12 * 1024 ** 3;
     const concurrency = [1, 4, 8].includes(options.concurrency) ? options.concurrency : 4;
-    const parts = new Map(), pending = new Map();
+    const session = options.session || {}, parts = session.parts ||= new Map(), pending = new Map();
     const failure = new AbortController();
     const activeSignal = AbortSignal.any([signal, failure.signal]);
-    let completed = 0, total = 0, mime = 'video/mp4', partial = true;
+    let completed = [...parts.values()].reduce((n, b) => n + b.size, 0), total = session.total || 0, mime = session.mime || 'video/mp4', partial = session.partial !== false;
     const trackKey = key(track.url);
     if (!trackKey) throw new Error('This media URL is not supported');
+    if (session.key && session.key !== trackKey) throw new Error('The selected track changed. Clear the cache first.');
+    session.key = trackKey;
     let urls = sourceUrls(track), measuredSpeed = 0, bestTransferRate = 0, lastSelection = 0, selecting = null;
     const autoSource = options.autoSource !== false;
     const notifySource = phase => options.onSource?.({ phase, host: new URL(urls[0]).hostname });
@@ -186,8 +188,8 @@
           if (nextTotal > maxSize) throw new Error('This track exceeds the 12 GB cache limit');
           total = nextTotal;
           const reader = response.body.getReader();
-          const chunks = [];
-          let loaded = 0;
+          const chunks = [], bodyParts = [];
+          let loaded = 0, bufferedBytes = 0;
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -195,7 +197,14 @@
               activity();
               loaded += value.byteLength;
               if (loaded > maxSize || (expected && loaded > expected)) throw new Error('The media response is larger than expected');
-              chunks.push(value);
+              chunks.push(value); bufferedBytes += value.byteLength;
+              if (bufferedBytes >= chunkSize) {
+                const piece = new Blob(chunks, { type: mime });
+                chunks.length = 0; bufferedBytes = 0;
+                await piece.slice(-1).arrayBuffer();
+                activeSignal.throwIfAborted();
+                bodyParts.push(piece);
+              }
               pending.set(offset, loaded);
               report();
             }
@@ -207,7 +216,12 @@
           if (!loaded) throw new Error('The server returned an empty media response');
           if (!total && response.status === 200) total = loaded;
           activeSignal.throwIfAborted();
-          const data = new Blob(chunks, { type: mime });
+          const data = new Blob([...bodyParts, ...chunks], { type: mime });
+          // Wait for Blob transport before scheduling another range. Chromium
+          // otherwise queues renderer buffers faster than it can spill to disk.
+          chunks.length = 0;
+          await data.slice(-1).arrayBuffer();
+          activeSignal.throwIfAborted();
           parts.set(offset, data);
           completed += data.size;
           pending.delete(offset);
@@ -241,7 +255,8 @@
       else notifySource('single');
       // A small first range discovers size/range support before parallel work.
       // If the server responds with a full 200 body, keep that single download.
-      const firstSize = await fetchPart(0, 256 * 1024 - 1);
+      const firstSize = parts.get(0)?.size || await fetchPart(0, 256 * 1024 - 1);
+      report();
       let next = firstSize;
       if (partial && next < total) {
         const workers = Array.from({ length: Math.min(concurrency, Math.ceil((total - next) / chunkSize)) }, async () => {
@@ -250,7 +265,7 @@
               activeSignal.throwIfAborted();
               const start = next;
               next += chunkSize;
-              await fetchPart(start, Math.min(start + chunkSize - 1, total - 1));
+              if (!parts.has(start)) await fetchPart(start, Math.min(start + chunkSize - 1, total - 1));
             }
           } catch (error) { failure.abort(error); throw error; }
         });
@@ -261,7 +276,9 @@
       if (completed !== total) throw new Error('The cache size does not match the media file');
       return new Blob([...parts].sort((a, b) => a[0] - b[0]).map(([, blob]) => blob), { type: mime });
     } finally {
-      parts.clear(); pending.clear();
+      session.total = total; session.mime = mime; session.partial = partial;
+      if (!options.session) parts.clear();
+      pending.clear();
     }
   }
   function install({ entries, observe, hit, metadata }) {

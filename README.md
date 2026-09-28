@@ -20,16 +20,20 @@ Cache Bilibili videos in Edge or Chrome. Play downloaded parts as they arrive, o
 
 Downloaded parts are available during playback. Seeking ahead of the cache uses the network. Direct MP4 playback switches to the cache when the download finishes.
 
+Click **Pause** to stop downloading and **Resume** to continue from completed parts. A failed download also keeps completed parts until you clear the cache or close the tab.
+
 Open **Options** to change download connections or server selection.
 
 ## Save a video
 
 Click **Save for 7 days** after the download finishes. The panel shows the expiry date once the copy is saved. To play it later, open the same video, select the same quality and audio track, and enable Bili Cache.
 
-**Clear cache** clears the current tab. **Delete saved** removes its saved copy. The toolbar popup shows total saved storage and has a **Delete all saved videos** button.
+**Clear cache** clears the current tab. **Delete saved** removes its saved copy. The toolbar popup lists saved videos with their quality, size and expiry. Open a video from its title, delete individual copies, or use **Delete all saved videos**. The saved-storage limit defaults to 32 GB and can be changed in the popup.
 
-Unsaved data is cleared when the tab closes. Saved copies expire after 7 days; cleanup runs every 30 minutes and at browser startup.
+Unsaved data is cleared when the tab closes. Saved copies expire after 7 days; cleanup runs during storage access, every 30 minutes while the browser is running, and at browser startup.
 
 ## Update
 
 Keep the installation folder in place. Replace its files with the new release and click **Reload** on the extensions page. Close and reopen the cache panel to update an existing tab.
+
+[Privacy](https://qingrongy.github.io/bili-page-cache/privacy.html) · [Contributing](https://github.com/QingrongY/bili-page-cache/blob/main/CONTRIBUTING.md)
