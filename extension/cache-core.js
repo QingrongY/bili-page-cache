@@ -188,8 +188,8 @@
           if (nextTotal > maxSize) throw new Error('This track exceeds the 12 GB cache limit');
           total = nextTotal;
           const reader = response.body.getReader();
-          const chunks = [];
-          let loaded = 0;
+          const chunks = [], bodyParts = [];
+          let loaded = 0, bufferedBytes = 0;
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -197,7 +197,14 @@
               activity();
               loaded += value.byteLength;
               if (loaded > maxSize || (expected && loaded > expected)) throw new Error('The media response is larger than expected');
-              chunks.push(value);
+              chunks.push(value); bufferedBytes += value.byteLength;
+              if (bufferedBytes >= chunkSize) {
+                const piece = new Blob(chunks, { type: mime });
+                chunks.length = 0; bufferedBytes = 0;
+                await piece.slice(-1).arrayBuffer();
+                activeSignal.throwIfAborted();
+                bodyParts.push(piece);
+              }
               pending.set(offset, loaded);
               report();
             }
@@ -209,7 +216,7 @@
           if (!loaded) throw new Error('The server returned an empty media response');
           if (!total && response.status === 200) total = loaded;
           activeSignal.throwIfAborted();
-          const data = new Blob(chunks, { type: mime });
+          const data = new Blob([...bodyParts, ...chunks], { type: mime });
           // Wait for Blob transport before scheduling another range. Chromium
           // otherwise queues renderer buffers faster than it can spill to disk.
           chunks.length = 0;

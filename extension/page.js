@@ -221,7 +221,7 @@
   async function start(options = {}) {
     if (controller || stopped) return;
     const resume = options.resume && job;
-    if (!resume) clear();
+    if (!resume) { clear(); pinnedKeys = []; pinnedUntil = 0; }
     pauseRequested = false;
     const run = generation;
     controller = new AbortController();
